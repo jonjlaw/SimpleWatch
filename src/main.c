@@ -41,7 +41,8 @@ static void layer_update_proc(Layer *layer, GContext *ctx) {
   
   
   // Get the sum steps so far today
-  HealthValue steps = health_service_sum_today(HealthMetricStepCount);
+  //HealthValue steps = health_service_sum_today(HealthMetricStepCount);
+  int steps = 0;
   int lapSteps = steps%STEPS_LAP;
   int lapSectionAngle = 360 / (STEPS_LAP / STEP_DIVS);
   int subLapSectionAngle = lapSectionAngle / 10;
@@ -71,7 +72,6 @@ static void layer_update_proc(Layer *layer, GContext *ctx) {
   GRect double_inset = grect_inset(inset_bounds, GEdgeInsets(15));
   graphics_context_set_fill_color(ctx, GColorWhite);
   if (steps < STEPS_LAP) {
-    steps += 150;
     return;
   }
   // draw step lap dots
@@ -79,7 +79,6 @@ static void layer_update_proc(Layer *layer, GContext *ctx) {
     GRect xywh = grect_centered_from_polar(double_inset, GOvalScaleModeFitCircle, DEG_TO_TRIGANGLE(6 * i), GSize(5,5));
     graphics_fill_radial(ctx, xywh, GOvalScaleModeFitCircle, 5, 0, TRIG_MAX_ANGLE);
   }
-  steps += 33;
 }
 
 static void update_time() {
