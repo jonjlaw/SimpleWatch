@@ -18,12 +18,59 @@ static const int STEPS_LAP = 10000;
 static const int STEP_DIVS = 1000;
 //static int steps = 0;
 
+static bool should_update = true;
+
+typedef enum {ACTIVE, SOMEWHAT_ACTIVE, LAZY, DEAD} ActivityLevelType;
+
+static ActivityLevelType check_active_status() {
+  // Make a timestamp for now
+  time_t temp = time(NULL);
+  struct tm *tick_time = localtime(&temp);
+  
+  int hoursAwake = tick_time->tm_hour - 7; // start at 7 am
+  hoursAwake = hoursAwake < 1 ? 1 : hoursAwake;
+  APP_LOG(APP_LOG_LEVEL_INFO, "Hours awake: %d", hoursAwake);
+  HealthValue steps = health_service_sum_today(HealthMetricStepCount);
+  steps = steps / hoursAwake;
+  
+  APP_LOG(APP_LOG_LEVEL_INFO, "Steps: %d", (int)steps);
+
+  /////////  Check to see if I've walked enough steps
+  if (steps > 1000) {
+    return ACTIVE;
+  } else if (steps > 500) {
+    return SOMEWHAT_ACTIVE;
+  } else if (steps > 100) {
+    return LAZY;
+  }
+  
+  return DEAD;
+}
+
+static GColor color_from_active_status(ActivityLevelType active_level) {
+  switch (active_level) {
+    case ACTIVE:
+     return GColorGreen;
+    case SOMEWHAT_ACTIVE:
+      return GColorKellyGreen;
+    case LAZY:
+      return GColorChromeYellow;
+    default:
+      return GColorRed;
+  }
+}
+
 static void battery_state_handler(BatteryChargeState charge) {
   s_charge_percent = charge.charge_percent;
   layer_mark_dirty(s_battery_layer);
 }
 
 static void layer_update_proc(Layer *layer, GContext *ctx) {
+  if (!should_update) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "Skipped update");
+    return;
+  }
+  
   GRect bounds = layer_get_bounds(layer);
   
   // Draw battery line
@@ -37,41 +84,32 @@ static void layer_update_proc(Layer *layer, GContext *ctx) {
   
   // Draw arcs for each STEP_DIVS
   GRect inset_bounds = grect_inset(bounds,GEdgeInsets(1,3,2,2));
-  graphics_context_set_fill_color(ctx, GColorRed);
-  
+  graphics_context_set_fill_color(ctx, color_from_active_status(check_active_status()));
   
   // Get the sum steps so far today
-  //HealthValue steps = health_service_sum_today(HealthMetricStepCount);
-  int steps = 0;
+  HealthValue steps = health_service_sum_today(HealthMetricStepCount);
   int lapSteps = steps%STEPS_LAP;
   int lapSectionAngle = 360 / (STEPS_LAP / STEP_DIVS);
   int subLapSectionAngle = lapSectionAngle / 10;
   
-  for (int i = 0; lapSteps > 0; i++) {
+  for (int i = 0; lapSteps > (STEP_DIVS / 10); i++) {
     if ( lapSteps > STEP_DIVS ) {
         int32_t add_Degrees = lapSectionAngle - 2;
         graphics_fill_radial(ctx, inset_bounds, GOvalScaleModeFitCircle, 9, DEG_TO_TRIGANGLE(lapSectionAngle * i), DEG_TO_TRIGANGLE(lapSectionAngle * i + add_Degrees ));  
         lapSteps -= STEP_DIVS;
     } else {
-      for (int j = 0; lapSteps > 0; j++) {
+      for (int j = 0; lapSteps > (STEP_DIVS / 10); j++) {
         int32_t add_Degrees = subLapSectionAngle - 1;
         graphics_fill_radial(ctx, inset_bounds, GOvalScaleModeFitCircle, ((j == 4) ? 13 : 9 ), DEG_TO_TRIGANGLE(lapSectionAngle * i + subLapSectionAngle * j), DEG_TO_TRIGANGLE(lapSectionAngle * i + subLapSectionAngle * j + add_Degrees ));  
         lapSteps -= STEP_DIVS / 10;
       }
     }    
-  }
-  
-  
-//   GRect double_inset = grect_inset(inset_bounds, GEdgeInsets(5));
-//   graphics_context_set_fill_color(ctx, GColorBlack);
-//   for (int i = 1; i < 10; i++) {
-//     GRect xywh = grect_centered_from_polar(double_inset, GOvalScaleModeFillCircle, DEG_TO_TRIGANGLE(36 * i), GSize(5,5));
-//     graphics_fill_radial(ctx, xywh, GOvalScaleModeFillCircle, 3, 0, TRIG_MAX_ANGLE);
-//   } 
+  } 
   
   GRect double_inset = grect_inset(inset_bounds, GEdgeInsets(15));
   graphics_context_set_fill_color(ctx, GColorWhite);
   if (steps < STEPS_LAP) {
+    steps += 150;
     return;
   }
   // draw step lap dots
@@ -79,6 +117,7 @@ static void layer_update_proc(Layer *layer, GContext *ctx) {
     GRect xywh = grect_centered_from_polar(double_inset, GOvalScaleModeFitCircle, DEG_TO_TRIGANGLE(6 * i), GSize(5,5));
     graphics_fill_radial(ctx, xywh, GOvalScaleModeFitCircle, 5, 0, TRIG_MAX_ANGLE);
   }
+  steps += 33;
 }
 
 static void update_time() {
@@ -107,12 +146,6 @@ static void update_time() {
   text_layer_set_size(s_time_ampm_layer, GSize(xHalf + halfWidth - (minSize.w - ampmSize.w) + 2, 68));  
 }
 
-static void update_steps() {
-  //static char str[15];
-  //snprintf(str, sizeof(str), "%d", steps);
-  //text_layer_set_text(s_steps_layer, str);
-}
-
 static void update_date() {
   time_t temp = time(NULL);
   struct tm *tick_time = localtime(&temp);
@@ -135,19 +168,21 @@ static void workout_reminder() {
   vibes_enqueue_custom_pattern(pat);
 }
 
-
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-  if (MINUTE_UNIT) {
-    update_time();
-    update_steps();
-  }
-  if (HOUR_UNIT)
+  if (MINUTE_UNIT)
   {
-    if (tick_time->tm_hour >= 9 && tick_time->tm_hour <= 17 && tick_time->tm_min == 0)
-    {
-      workout_reminder();  
+    update_time();
+    if (tick_time->tm_hour >= 9 && tick_time->tm_hour <= 17 && tick_time->tm_min % 15 == 0) {
+      ActivityLevelType level = check_active_status();
+      if (level == DEAD) 
+      {
+        workout_reminder();
+      }
     }
+    
+    should_update = (tick_time->tm_hour >= 7 && tick_time->tm_hour <= 22) ? true : false;
   }
+  
   if (DAY_UNIT) {
     update_date();
   }

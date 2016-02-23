@@ -1,9 +1,11 @@
 {
     "appKeys": {},
     "capabilities": [
-        "configurable"
+        "configurable",
+        "health"
     ],
     "companyName": "jonjlaw@hotmail.com",
+    "enableMultiJS": false,
     "longName": "Simple Watch",
     "projectType": "native",
     "resources": {
